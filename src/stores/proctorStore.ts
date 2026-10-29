@@ -1,3 +1,23 @@
+
+function playWarningChime() {
+  try {
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(520, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.25);
+    gain.gain.setValueAtTime(0.2, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.25);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.25);
+  } catch (e) {}
+}
+
 import { create } from 'zustand';
 import { ProctorEvent, ProctorViolationType } from '@/types/api';
 import { mockApi } from '@/services/api/mockApi';
@@ -48,6 +68,7 @@ export const useProctorStore = create<ProctorState>((set, get) => ({
   reportViolation: async (type: ProctorViolationType, reason: string, isMajor = false) => {
     const { warningsCount, maxWarnings, isDisqualified } = get();
     if (isDisqualified) return;
+    playWarningChime();
 
     const newCount = warningsCount + 1;
     const now = new Date();

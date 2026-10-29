@@ -1,3 +1,4 @@
+import { getOrCreateBackendSession } from '@/services/api/realApi';
 import { create } from 'zustand';
 import { User, SessionStatus } from '@/types/api';
 import { mockApi } from '@/services/api/mockApi';
@@ -87,12 +88,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       const res = await mockApi.verifyOtp(email, otp);
       if (res.success && res.user) {
-        const sessionRes = await mockApi.createSession(res.user.id, deviceId);
+        const backendSess = await getOrCreateBackendSession(res.user.name, res.user.id);
+        const sessionRes = { success: true, session: { sessionId: backendSess.id, userId: res.user.id, isActive: true, activeDeviceId: deviceId, lastHeartbeat: new Date().toISOString() } };
         if (!sessionRes.success) {
           set({
             user: res.user,
             activeSessionConflict: true,
-            error: sessionRes.message,
+            error: 'Active session conflict',
             isLoading: false,
           });
           return false;
@@ -134,12 +136,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             : 'student',
       };
 
-      const sessionRes = await mockApi.createSession(user.id, deviceId);
+      const backendSess = await getOrCreateBackendSession(user.name, user.id);
+      const sessionRes = { success: true, session: { sessionId: backendSess.id, userId: user.id, isActive: true, activeDeviceId: deviceId, lastHeartbeat: new Date().toISOString() } };
       if (!sessionRes.success) {
         set({
           user,
           activeSessionConflict: true,
-          error: sessionRes.message,
+          error: 'Active session conflict',
           isLoading: false,
         });
         return false;

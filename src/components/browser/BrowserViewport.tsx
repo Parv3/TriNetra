@@ -1,3 +1,6 @@
+import { logIntegrityEvent } from '@/services/api/realApi';
+import { useProctorStore } from '@/stores/proctorStore';
+import { useAuthStore } from '@/stores/authStore';
 import React, { useState } from 'react';
 import { BrowserTab, useBrowserStore } from '@/stores/browserStore';
 import {
@@ -20,6 +23,8 @@ interface Props {
 
 export const BrowserViewport: React.FC<Props> = ({ tab }) => {
   const { navigateTab, searchInTab, returnToTest } = useBrowserStore();
+  const { reportViolation } = useProctorStore();
+  const { session } = useAuthStore();
   const [urlInput, setUrlInput] = useState(tab.url);
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -27,6 +32,9 @@ export const BrowserViewport: React.FC<Props> = ({ tab }) => {
     e.preventDefault();
     if (urlInput.trim()) {
       navigateTab(tab.id, urlInput.trim());
+      if (isAiTool) {
+        reportViolation('AI_TOOL_ACCESSED', `Opened prohibited AI domain: ${tab.domain}`, false);
+      }
     }
   };
 
@@ -34,6 +42,8 @@ export const BrowserViewport: React.FC<Props> = ({ tab }) => {
     e.preventDefault();
     if (searchQuery.trim()) {
       searchInTab(tab.id, searchQuery.trim());
+      const sId = session?.sessionId || localStorage.getItem('spb_session_id') || 'active_session';
+      logIntegrityEvent(sId, 'EXTERNAL_QUERY_SUBMITTED', { query: searchQuery.trim(), domain: tab.domain });
       setUrlInput(`https://www.google.com/search?q=${encodeURIComponent(searchQuery.trim())}`);
       setSearchQuery('');
     }

@@ -1,16 +1,45 @@
-import React, { useRef, useEffect, useState } from 'react';
-import { AlertCircle, GripHorizontal, Mic, Eye, ShieldCheck } from 'lucide-react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
+import { AlertCircle, GripHorizontal, Mic, Eye, ShieldCheck, Users, EyeOff } from 'lucide-react';
 import { useProctorStore } from '@/stores/proctorStore';
+import { useAuthStore } from '@/stores/authStore';
+import { analyzeLiveFrame, logIntegrityEvent } from '@/services/api/realApi';
 
 export const WebcamOverlay: React.FC = () => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [cameraError, setCameraError] = useState<string | null>(null);
-  const { webcamStatus, riskLevel } = useProctorStore();
+  const { webcamStatus, riskLevel, reportViolation } = useProctorStore();
+  const { session } = useAuthStore();
 
-  // Simulated audio level meter for ambient acoustic monitoring
-  const [audioLevel, setAudioLevel] = useState(25);
-  // Simulated head pose & gaze telemetry
-  const [telemetry, setTelemetry] = useState({ yaw: 1.2, pitch: -0.8, gaze: 'CENTER' });
+  const [audioLevel, setAudioLevel] = useState(15);
+  const [telemetry, setTelemetry] = useState({
+    gaze: 'CENTER',
+    lookingAtScreen: true,
+    faceCount: 1,
+    confidence: 98.5,
+    statusText: 'VERIFIED',
+  });
+
+  // Consecutive anomaly counters to prevent single-frame flickering
+  const gazeAwayCountRef = useRef(0);
+  const noFaceCountRef = useRef(0);
+  const multiFaceCountRef = useRef(0);
+  const isAnalyzingRef = useRef(false);
+  const lastViolationTimeRef = useRef<Record<string, number>>({});
+
+  const emitViolation = useCallback(
+    (type: any, reason: string, isMajor = false, cooldownSec = 8) => {
+      const now = Date.now();
+      const last = lastViolationTimeRef.current[type] || 0;
+      if (now - last >= cooldownSec * 1000) {
+        lastViolationTimeRef.current[type] = now;
+        reportViolation(type, reason, isMajor);
+        const sessId = session?.sessionId || localStorage.getItem('spb_session_id') || 'active_session';
+        logIntegrityEvent(sessId, type, { reason }, isMajor ? 'high' : 'medium');
+      }
+    },
+    [reportViolation, session]
+  );
 
   // Draggable position
   const [position, setPosition] = useState({ x: 24, y: 24 });
@@ -24,46 +53,170 @@ export const WebcamOverlay: React.FC = () => {
 
   useEffect(() => {
     let activeStream: MediaStream | null = null;
+    let audioCtx: AudioContext | null = null;
+    let analyser: AnalyserNode | null = null;
+    let animId: number | null = null;
+
     navigator.mediaDevices
-      .getUserMedia({ video: { width: 320, height: 240, facingMode: 'user' }, audio: true })
+      .getUserMedia({
+        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
+        audio: true,
+      })
       .then((s) => {
         activeStream = s;
         if (videoRef.current) {
           videoRef.current.srcObject = s;
         }
+
+        // Real microphone level via Web Audio API
+        try {
+          audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+          const source = audioCtx.createMediaStreamSource(s);
+          analyser = audioCtx.createAnalyser();
+          analyser.fftSize = 64;
+          source.connect(analyser);
+
+          const dataArray = new Uint8Array(analyser.frequencyBinCount);
+          const updateAudio = () => {
+            if (analyser) {
+              analyser.getByteFrequencyData(dataArray);
+              let sum = 0;
+              for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+              const avg = sum / dataArray.length;
+              setAudioLevel(Math.min(100, Math.round((avg / 255) * 120)));
+            }
+            animId = requestAnimationFrame(updateAudio);
+          };
+          updateAudio();
+        } catch (e) {
+          console.warn('[Audio Analyser] Error initializing microphone audio context:', e);
+        }
       })
       .catch(() => {
-        // Fallback to video only if audio is blocked
         navigator.mediaDevices
-          .getUserMedia({ video: { width: 320, height: 240, facingMode: 'user' } })
+          .getUserMedia({ video: { width: 640, height: 480, facingMode: 'user' } })
           .then((s) => {
             activeStream = s;
             if (videoRef.current) {
               videoRef.current.srcObject = s;
             }
           })
-          .catch(() => {
-            setCameraError('Camera inactive');
+          .catch((err) => {
+            setCameraError('Camera access required for proctoring.');
+            console.warn('Camera capture error:', err);
           });
       });
 
-    // Simulate telemetry fluctuations
-    const interval = setInterval(() => {
-      setAudioLevel(18 + Math.floor(Math.random() * 22));
-      setTelemetry({
-        yaw: Number((Math.sin(Date.now() / 3000) * 3).toFixed(1)),
-        pitch: Number((Math.cos(Date.now() / 2500) * 2).toFixed(1)),
-        gaze: 'ON SCREEN',
-      });
+    // Real computer vision frame capture loop every 1.2 seconds
+    const interval = setInterval(async () => {
+      if (
+        !videoRef.current ||
+        !canvasRef.current ||
+        isAnalyzingRef.current ||
+        videoRef.current.readyState < 2
+      ) {
+        return;
+      }
+
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      const w = 480;
+      const h = 360;
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      ctx.drawImage(video, 0, 0, w, h);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
+
+      isAnalyzingRef.current = true;
+      try {
+        const sessId = session?.sessionId || localStorage.getItem('spb_session_id') || undefined;
+        const result = await analyzeLiveFrame(dataUrl, sessId);
+
+        // Update live HUD
+        setTelemetry({
+          gaze: result.gaze_direction || 'CENTER',
+          lookingAtScreen: result.looking_at_screen,
+          faceCount: result.face_count,
+          confidence: Number((result.confidence * 100).toFixed(1)),
+          statusText: result.status.toUpperCase(),
+        });
+
+        // 1. Face Absence Detection (3 consecutive frames ~ 3.6s)
+        if (!result.face_detected || result.face_count === 0) {
+          noFaceCountRef.current += 1;
+          if (noFaceCountRef.current >= 3) {
+            emitViolation(
+              'NO_FACE_DETECTED',
+              'Candidate face is not detected in camera frame.',
+              true,
+              10
+            );
+            noFaceCountRef.current = 0;
+          }
+        } else {
+          noFaceCountRef.current = 0;
+        }
+
+        // 2. Multiple Individuals Detection (2 consecutive frames)
+        if (result.face_count > 1) {
+          multiFaceCountRef.current += 1;
+          if (multiFaceCountRef.current >= 2) {
+            emitViolation(
+              'MULTIPLE_FACES_DETECTED',
+              `Multiple individuals (${result.face_count}) detected in proctor frame.`,
+              true,
+              10
+            );
+            multiFaceCountRef.current = 0;
+          }
+        } else {
+          multiFaceCountRef.current = 0;
+        }
+
+        // 3. Gaze & Looking Away (3 consecutive frames)
+        if (!result.looking_at_screen || result.gaze_direction !== 'CENTER') {
+          gazeAwayCountRef.current += 1;
+          if (gazeAwayCountRef.current >= 3) {
+            emitViolation(
+              'FACE_TURNED_AWAY',
+              `Prolonged gaze orientation away from screen: looking ${result.gaze_direction}.`,
+              false,
+              10
+            );
+            gazeAwayCountRef.current = 0;
+          }
+        } else {
+          gazeAwayCountRef.current = 0;
+        }
+
+        // 4. Unauthorized Mobile Device Detection
+        if (result.phone_detected) {
+          emitViolation(
+            'SUSPICIOUS_SHORTCUT',
+            'Prohibited mobile device detected in camera frame.',
+            true,
+            12
+          );
+        }
+      } catch (err) {
+        console.warn('[Proctor Vision] Frame analysis error:', err);
+      } finally {
+        isAnalyzingRef.current = false;
+      }
     }, 1200);
 
     return () => {
       clearInterval(interval);
+      if (animId) cancelAnimationFrame(animId);
+      if (audioCtx) audioCtx.close().catch(console.warn);
       if (activeStream) {
         activeStream.getTracks().forEach((t) => t.stop());
       }
     };
-  }, []);
+  }, [emitViolation, session]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     setIsDragging(true);
@@ -107,8 +260,11 @@ export const WebcamOverlay: React.FC = () => {
   return (
     <div
       style={{ bottom: `${position.y}px`, right: `${position.x}px` }}
-      className="fixed z-40 w-52 rounded-xl border-2 border-border/80 bg-card/95 shadow-2xl backdrop-blur-md overflow-hidden select-none transition-shadow hover:shadow-cyan-500/10"
+      className="fixed z-40 w-56 rounded-xl border-2 border-border/80 bg-card/95 shadow-2xl backdrop-blur-md overflow-hidden select-none transition-shadow hover:shadow-cyan-500/10"
     >
+      {/* Hidden processing canvas */}
+      <canvas ref={canvasRef} style={{ display: 'none' }} />
+
       {/* Draggable Title Header */}
       <div
         onMouseDown={handleMouseDown}
@@ -116,7 +272,7 @@ export const WebcamOverlay: React.FC = () => {
       >
         <span className="flex items-center gap-1 font-semibold text-foreground">
           <GripHorizontal className="w-3.5 h-3.5 text-muted-foreground" />
-          AI Proctor HUD
+          AI Vision Proctor HUD
         </span>
         <div className="flex items-center gap-1.5">
           <span
@@ -135,7 +291,7 @@ export const WebcamOverlay: React.FC = () => {
         {cameraError ? (
           <div className="p-2 text-center text-[10px] text-rose-400">
             <AlertCircle className="w-4 h-4 mx-auto mb-1 text-rose-500" />
-            Camera unavailable
+            {cameraError}
           </div>
         ) : (
           <>
@@ -147,18 +303,43 @@ export const WebcamOverlay: React.FC = () => {
               className="w-full h-full object-cover -scale-x-100"
             />
 
-            {/* Simulated AI Face Landmark Bounding Frame */}
-            <div className="absolute inset-4 border border-cyan-400/50 rounded-lg pointer-events-none flex flex-col justify-between p-1">
+            {/* Live AI Face Landmark Bounding Frame */}
+            <div
+              className={`absolute inset-3 border-2 rounded-lg pointer-events-none flex flex-col justify-between p-1 transition-colors ${
+                telemetry.faceCount === 0 || !telemetry.lookingAtScreen
+                  ? 'border-rose-500/80 bg-rose-500/10'
+                  : telemetry.faceCount > 1
+                  ? 'border-amber-500/80 bg-amber-500/10'
+                  : 'border-cyan-400/50'
+              }`}
+            >
               <div className="flex justify-between text-[8px] text-cyan-300 font-mono">
-                <span>98.6% MATCH</span>
-                <span>Y:{telemetry.yaw}° P:{telemetry.pitch}°</span>
-              </div>
-              <div className="flex justify-between items-end text-[8px] text-emerald-400 font-mono">
+                <span>{telemetry.confidence}% FACE</span>
                 <span className="flex items-center gap-0.5">
-                  <Eye className="w-2.5 h-2.5" /> {telemetry.gaze}
+                  <Users className="w-2.5 h-2.5" /> {telemetry.faceCount} {telemetry.faceCount === 1 ? 'FACE' : 'FACES'}
                 </span>
-                <span className="flex items-center gap-0.5">
-                  <ShieldCheck className="w-2.5 h-2.5" /> SECURE
+              </div>
+              <div className="flex justify-between items-end text-[8px] font-mono">
+                <span
+                  className={`flex items-center gap-0.5 font-bold ${
+                    telemetry.lookingAtScreen ? 'text-emerald-400' : 'text-rose-400'
+                  }`}
+                >
+                  {telemetry.lookingAtScreen ? (
+                    <Eye className="w-2.5 h-2.5" />
+                  ) : (
+                    <EyeOff className="w-2.5 h-2.5" />
+                  )}
+                  {telemetry.gaze}
+                </span>
+                <span
+                  className={`flex items-center gap-0.5 font-bold ${
+                    telemetry.faceCount === 1 && telemetry.lookingAtScreen
+                      ? 'text-emerald-400'
+                      : 'text-rose-400'
+                  }`}
+                >
+                  <ShieldCheck className="w-2.5 h-2.5" /> {telemetry.statusText}
                 </span>
               </div>
             </div>
@@ -166,20 +347,34 @@ export const WebcamOverlay: React.FC = () => {
         )}
       </div>
 
-      {/* Telemetry Footer: Audio VU meter & Head Angle */}
+      {/* Telemetry Footer: Audio VU meter & Status */}
       <div className="px-2.5 py-1.5 bg-muted/40 border-t border-border flex items-center justify-between text-[10px] text-muted-foreground font-mono">
-        <div className="flex items-center gap-1">
-          <Mic className="w-3 h-3 text-emerald-500" />
-          <div className="w-12 h-1.5 bg-muted rounded-full overflow-hidden flex">
+        <div className="flex items-center gap-1.5" title={`Microphone Level: ${audioLevel}%`}>
+          <Mic className={`w-3 h-3 ${audioLevel > 20 ? 'text-emerald-500' : 'text-slate-400'}`} />
+          <div className="w-14 h-1.5 bg-muted rounded-full overflow-hidden flex">
             <div
-              style={{ width: `${Math.min(100, audioLevel * 2)}%` }}
-              className="h-full bg-emerald-500 transition-all duration-300"
+              style={{ width: `${Math.min(100, audioLevel)}%` }}
+              className={`h-full transition-all duration-150 ${
+                audioLevel > 60 ? 'bg-amber-500' : 'bg-emerald-500'
+              }`}
             />
           </div>
         </div>
 
-        <span className="text-[9px] font-semibold text-emerald-600 dark:text-emerald-400">
-          PROCTOR ACTIVE
+        <span
+          className={`text-[9px] font-semibold ${
+            telemetry.faceCount === 1 && telemetry.lookingAtScreen
+              ? 'text-emerald-600 dark:text-emerald-400'
+              : 'text-rose-600 dark:text-rose-400 font-bold'
+          }`}
+        >
+          {telemetry.faceCount === 0
+            ? 'NO FACE'
+            : !telemetry.lookingAtScreen
+            ? 'LOOKING AWAY'
+            : telemetry.faceCount > 1
+            ? 'MULTIPLE FACES'
+            : 'LIVE PROCTOR'}
         </span>
       </div>
     </div>

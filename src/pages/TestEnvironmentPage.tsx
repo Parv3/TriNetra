@@ -1,3 +1,4 @@
+import { getOrCreateBackendSession, logIntegrityEvent } from '@/services/api/realApi';
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTestStore } from '@/stores/testStore';
@@ -41,6 +42,24 @@ import {
 export const TestEnvironmentPage: React.FC = () => {
   const navigate = useNavigate();
   const { user, session } = useAuthStore();
+
+  // Ensure session is synchronized with backend database upon entering test
+  useEffect(() => {
+    getOrCreateBackendSession(user?.name, user?.id).then((sess) => {
+      if (sess && (!session || session.sessionId !== sess.id)) {
+        useAuthStore.setState({
+          session: {
+            sessionId: sess.id,
+            userId: user?.id || 'usr_candidate_01',
+            isActive: true,
+            activeDeviceId: 'dev_primary',
+            lastHeartbeat: new Date().toISOString(),
+          },
+        });
+      }
+    });
+  }, [user]);
+
   const {
     currentTest,
     questions,
@@ -159,6 +178,8 @@ export const TestEnvironmentPage: React.FC = () => {
 
     const handleWindowBlur = () => {
       reportViolation('WINDOW_BLUR', 'Workstation focus lost. Window blur detected.', false);
+      const sId = session?.sessionId || localStorage.getItem('spb_session_id') || 'active_session';
+      logIntegrityEvent(sId, 'WINDOW_BLUR', { message: 'Window focus switch attempt' });
     };
 
     window.addEventListener('contextmenu', preventContextMenu);
