@@ -25,6 +25,21 @@ interface AuthState {
   resetError: () => void;
 }
 
+const getInitialSession = (deviceId: string): SessionStatus => {
+  let sessId = localStorage.getItem('spb_session_id');
+  if (!sessId) {
+    sessId = `TRN-SESS-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+    localStorage.setItem('spb_session_id', sessId);
+  }
+  return {
+    sessionId: sessId,
+    userId: 'usr_candidate_01',
+    isActive: true,
+    activeDeviceId: deviceId,
+    lastHeartbeat: new Date().toISOString(),
+  };
+};
+
 const getDeviceId = (): string => {
   let id = localStorage.getItem('spb_device_id');
   if (!id) {
@@ -36,7 +51,7 @@ const getDeviceId = (): string => {
 
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
-  session: null,
+  session: getInitialSession(getDeviceId()),
   email: '',
   isOtpSent: false,
   isOtpVerified: false,
@@ -85,7 +100,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
         set({
           user: res.user,
-          session: sessionRes.session,
+          session: sessionRes.session || getInitialSession(deviceId),
           isOtpVerified: true,
           isLoading: false,
         });

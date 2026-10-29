@@ -89,3 +89,14 @@
   background: hsl(var(--muted-foreground) / 0.25);
   border-radius: 9999px;
 }
+
+
+/* Universal text cutoff prevention */
+.overflow-wrap-anywhere {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+h1, h2, h3, h4, h5, h6, p, span, div {
+  overflow-wrap: break-word;
+}

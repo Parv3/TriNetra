@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTestStore } from '@/stores/testStore';
+import { useAuthStore } from '@/stores/authStore';
 import { useProctorStore } from '@/stores/proctorStore';
 import { useBrowserStore } from '@/stores/browserStore';
 import { SAMPLE_TESTS } from '@/services/api/mockApi';
@@ -39,6 +40,7 @@ import {
 
 export const TestEnvironmentPage: React.FC = () => {
   const navigate = useNavigate();
+  const { user, session } = useAuthStore();
   const {
     currentTest,
     questions,
@@ -298,7 +300,13 @@ export const TestEnvironmentPage: React.FC = () => {
 
         {/* Windows-style Native Window Controls (Locked) */}
         <div className="flex items-center gap-3">
-          <span className="text-slate-500 text-[10px]">CANDIDATE: ALEX JOHNSON</span>
+          <span className="text-cyan-400 font-semibold text-[10px] hidden sm:inline shrink-0">
+            SESSION: {session?.sessionId || 'TRN-ACTIVE-01'}
+          </span>
+          <span className="text-slate-600 hidden sm:inline">|</span>
+          <span className="text-slate-300 text-[10px] font-semibold uppercase truncate max-w-[140px]" title={user?.name || 'ALEX JOHNSON'}>
+            CANDIDATE: {user?.name || 'ALEX JOHNSON'}
+          </span>
           <button
             disabled
             className="p-1 text-slate-600 cursor-not-allowed"
@@ -326,7 +334,7 @@ export const TestEnvironmentPage: React.FC = () => {
       {/* 2. Top Browser Tab Strip & Telemetry Chips */}
       <header className="h-12 bg-card border-b border-border px-3 flex items-center justify-between shrink-0 z-30">
         {/* Left: Tab Strip */}
-        <div className="flex items-center gap-1.5 overflow-x-auto max-w-2xl py-1">
+        <div className="flex items-center gap-1.5 overflow-x-auto max-w-[65vw] py-1 scrollbar-none">
           <TrinetraLogo size="sm" showText={false} className="mr-1" />
 
           {/* Locked Test Tab */}
@@ -493,7 +501,7 @@ export const TestEnvironmentPage: React.FC = () => {
 
               {/* Question Text (at 20px) */}
               <div className="py-6">
-                <h2 className="text-xl sm:text-[20px] font-medium leading-relaxed text-foreground">
+                <h2 className="text-lg sm:text-[20px] font-medium leading-relaxed text-foreground break-words overflow-wrap-anywhere select-text">
                   {currentQ.text}
                 </h2>
               </div>
@@ -531,7 +539,7 @@ export const TestEnvironmentPage: React.FC = () => {
                         {optionLetters[optIdx]}
                       </div>
 
-                      <span className="text-sm sm:text-base font-normal text-foreground leading-relaxed flex-1">
+                      <span className="text-sm sm:text-base font-normal text-foreground leading-relaxed flex-1 break-words min-w-0">
                         {optionText}
                       </span>
 

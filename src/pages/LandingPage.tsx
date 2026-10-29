@@ -85,12 +85,12 @@ export const LandingPage: React.FC = () => {
             Chromium AI-Proctored Browser Shell
           </div>
 
-          <h1 className="text-4xl sm:text-6xl font-extrabold tracking-tight leading-[1.1] font-heading">
+          <h1 className="text-3xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight leading-[1.15] font-heading break-words">
             Fair tests.{' '}
             <span className="text-gradient-trinetra">Zero shortcuts.</span>
           </h1>
 
-          <p className="text-lg text-muted-foreground max-w-xl font-normal leading-relaxed">
+          <p className="text-base sm:text-lg text-muted-foreground max-w-xl font-normal leading-relaxed break-words">
             Locked-down student exam browser where tabs are permitted, but all LLMs and external aids are detected and logged in real-time.
           </p>
 

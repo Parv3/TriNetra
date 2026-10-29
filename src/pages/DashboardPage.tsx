@@ -129,7 +129,7 @@ export const DashboardPage: React.FC = () => {
                           </span>
                         </div>
 
-                        <h3 className="text-base font-bold text-foreground font-heading">
+                        <h3 className="text-base font-bold text-foreground font-heading break-words">
                           {test.title}
                         </h3>
                         <p className="text-xs text-muted-foreground line-clamp-2">
