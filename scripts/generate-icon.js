@@ -1,0 +1,25 @@
+const fs = require('fs');
+const path = require('path');
+
+const publicDir = path.join(__dirname, '../public');
+if (!fs.existsSync(publicDir)) {
+  fs.mkdirSync(publicDir, { recursive: true });
+}
+
+// 1. Write SVG Icon
+const svgIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#5B4BFF"/>
+      <stop offset="100%" stop-color="#19D3F3"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="56" fill="#0B0F19"/>
+  <circle cx="128" cy="128" r="96" fill="none" stroke="url(#g)" stroke-width="12"/>
+  <path d="M48 128s32-56 80-56 80 56 80 56-32 56-80 56-80-56-80-56Z" fill="none" stroke="url(#g)" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="128" cy="128" r="26" fill="#5B4BFF" stroke="#19D3F3" stroke-width="8"/>
+</svg>`;
+
+fs.writeFileSync(path.join(publicDir, 'favicon.svg'), svgIcon);
+console.log('Created favicon.svg');
+
