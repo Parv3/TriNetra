@@ -21,3 +21,5 @@ release
 # Environment
 .env.local
 .env.*.local
+
+.agents/

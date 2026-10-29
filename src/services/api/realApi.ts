@@ -1,8 +1,8 @@
 /**
- * Real API Client connecting TriNetra Frontend to FastAPI Proctoring Backend
+ * Real API Client connecting TriNetra Frontend to Dhristi Node/Express Backend (Port 3001)
  */
 
-export const BACKEND_URL = 'http://127.0.0.1:8000';
+export const BACKEND_URL = 'http://localhost:3001';
 
 export interface BackendSession {
   id: string;
@@ -12,6 +12,16 @@ export interface BackendSession {
   status: string;
   face_id?: string;
   duration_minutes: number;
+}
+
+export interface ClientVisionMetrics {
+  faceDetected?: boolean;
+  faceCount?: number;
+  gazeDirection?: string;
+  lookingAtScreen?: boolean;
+  phoneDetected?: boolean;
+  confidence?: number;
+  status?: string;
 }
 
 export interface FrameAnalysisResult {
@@ -27,7 +37,7 @@ export interface FrameAnalysisResult {
 }
 
 /**
- * Ensures an active session exists in backend database.
+ * Ensures an active session exists in Dhristi backend.
  * If one exists, retrieves or creates it and returns the session.
  */
 export async function getOrCreateBackendSession(
@@ -35,52 +45,51 @@ export async function getOrCreateBackendSession(
   candidateId = 'cand_alex_01'
 ): Promise<BackendSession> {
   try {
-    // 1. Fetch available exams from backend
-    const examsRes = await fetch(`${BACKEND_URL}/api/exams`);
-    if (!examsRes.ok) {
-      throw new Error(`Failed to load exams: HTTP ${examsRes.status}`);
-    }
-    const exams = await examsRes.json();
-    const targetExam = Array.isArray(exams) && exams.length > 0 ? exams[0] : null;
-    if (!targetExam) {
-      throw new Error('No assessment configurations found on backend');
-    }
+    const existingId = localStorage.getItem('spb_session_id');
 
-    // 2. Create or resume session in database
-    const createRes = await fetch(`${BACKEND_URL}/api/sessions`, {
+    const res = await fetch(`${BACKEND_URL}/api/proctor/session`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        exam_id: targetExam.id,
+        id: existingId || undefined,
+        sessionId: existingId || undefined,
+        studentName: candidateName,
+        candidateName: candidateName,
         candidate_name: candidateName,
-        candidate_id: candidateId,
+        candidateId: candidateId,
+        testId: 'dsa_core_01',
       }),
     });
 
-    if (!createRes.ok) {
-      const err = await createRes.json().catch(() => ({}));
-      throw new Error(err.detail || `Session creation failed: HTTP ${createRes.status}`);
+    if (!res.ok) {
+      throw new Error(`Session creation failed: HTTP ${res.status}`);
     }
 
-    const session: BackendSession = await createRes.json();
+    const data = await res.json();
+    const finalSessionId = data.sessionId || data.id || existingId;
 
-    // 3. Mark session active if not already
-    if (session.status !== 'active') {
-      await fetch(`${BACKEND_URL}/api/sessions/${session.id}/start`, {
-        method: 'POST',
-      }).catch(console.warn);
+    if (finalSessionId) {
+      localStorage.setItem('spb_session_id', finalSessionId);
     }
 
-    // Persist to local storage
-    localStorage.setItem('spb_session_id', session.id);
-    return session;
+    return {
+      id: finalSessionId,
+      exam_id: 'dsa_core_01',
+      candidate_name: candidateName,
+      candidate_id: candidateId,
+      status: 'active',
+      duration_minutes: 30,
+    };
   } catch (err) {
-    console.warn('[Backend] Could not create server session, generating local fallback:', err);
-    const fallbackId = `TRN-${Date.now().toString(36).toUpperCase()}`;
-    localStorage.setItem('spb_session_id', fallbackId);
+    console.warn('[Dhristi Backend] Session sync error, using cached/local session:', err);
+    let fallbackId = localStorage.getItem('spb_session_id');
+    if (!fallbackId) {
+      fallbackId = `TRN-DH-${Date.now().toString(36).toUpperCase()}`;
+      localStorage.setItem('spb_session_id', fallbackId);
+    }
     return {
       id: fallbackId,
-      exam_id: 'e0000000-0000-4000-8000-000000000001',
+      exam_id: 'dsa_core_01',
       candidate_name: candidateName,
       candidate_id: candidateId,
       status: 'active',
@@ -90,19 +99,23 @@ export async function getOrCreateBackendSession(
 }
 
 /**
- * Sends a live camera frame to the OpenCV / MediaPipe proctoring engine.
+ * Sends a live camera frame & client vision metrics to Dhristi proctoring engine.
  */
 export async function analyzeLiveFrame(
   imageBase64: string,
-  sessionId?: string
+  sessionId?: string,
+  clientMetrics?: ClientVisionMetrics
 ): Promise<FrameAnalysisResult> {
+  const activeSessionId = sessionId || localStorage.getItem('spb_session_id') || 'default_session';
+
   try {
     const res = await fetch(`${BACKEND_URL}/api/proctor/analyze-frame`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         image_base64: imageBase64,
-        session_id: sessionId || localStorage.getItem('spb_session_id') || undefined,
+        session_id: activeSessionId,
+        client_metrics: clientMetrics,
       }),
     });
 
@@ -112,23 +125,27 @@ export async function analyzeLiveFrame(
 
     return await res.json();
   } catch (err) {
-    // Graceful offline mock fallback if backend is momentarily unreachable
+    // If backend is momentarily unreachable, use client metrics directly
+    const faceDet = clientMetrics?.faceDetected ?? true;
+    const faceCnt = clientMetrics?.faceCount ?? (faceDet ? 1 : 0);
+    const gazeDir = clientMetrics?.gazeDirection || 'CENTER';
+
     return {
-      face_detected: true,
-      face_count: 1,
-      confidence: 0.98,
-      status: 'verified',
-      gaze_direction: 'CENTER',
-      looking_at_screen: true,
+      face_detected: faceDet,
+      face_count: faceCnt,
+      confidence: clientMetrics?.confidence ?? 0.95,
+      status: faceDet ? 'verified' : 'no_face',
+      gaze_direction: gazeDir,
+      looking_at_screen: clientMetrics?.lookingAtScreen ?? (gazeDir === 'CENTER'),
       eyewear_detected: false,
-      phone_detected: false,
+      phone_detected: clientMetrics?.phoneDetected ?? false,
       face_id_match: true,
     };
   }
 }
 
 /**
- * Logs an integrity event to the backend database & policy engine.
+ * Logs an integrity event to Dhristi backend database & proctor audit log.
  */
 export async function logIntegrityEvent(
   sessionId: string,
@@ -137,16 +154,23 @@ export async function logIntegrityEvent(
   severity = 'medium',
   confidence = 0.95
 ): Promise<any> {
+  const sid = sessionId || localStorage.getItem('spb_session_id') || 'default_session';
+
   try {
-    const res = await fetch(`${BACKEND_URL}/api/sessions/${sessionId}/events`, {
+    const res = await fetch(`${BACKEND_URL}/api/proctor/activity`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        event_type: eventType,
-        source: 'client_proctor_engine',
-        severity,
-        confidence,
-        metadata,
+        sessionId: sid,
+        events: [
+          {
+            type: eventType,
+            severity,
+            confidence,
+            details: metadata,
+            timestamp: Date.now(),
+          },
+        ],
       }),
     });
 
@@ -154,7 +178,7 @@ export async function logIntegrityEvent(
       return await res.json();
     }
   } catch (err) {
-    console.warn('[Backend] logIntegrityEvent error:', err);
+    console.warn('[Dhristi Backend] logIntegrityEvent error:', err);
   }
   return null;
 }
@@ -163,15 +187,19 @@ export async function logIntegrityEvent(
  * Submits the examination session to finalize and compute final audit verdict.
  */
 export async function submitBackendSession(sessionId: string): Promise<any> {
+  const sid = sessionId || localStorage.getItem('spb_session_id') || 'default_session';
+
   try {
-    const res = await fetch(`${BACKEND_URL}/api/sessions/${sessionId}/submit`, {
+    const res = await fetch(`${BACKEND_URL}/api/proctor/report`, {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId: sid }),
     });
     if (res.ok) {
       return await res.json();
     }
   } catch (err) {
-    console.warn('[Backend] submitBackendSession error:', err);
+    console.warn('[Dhristi Backend] submitBackendSession error:', err);
   }
   return null;
 }

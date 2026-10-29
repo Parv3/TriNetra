@@ -322,7 +322,7 @@ export const TestEnvironmentPage: React.FC = () => {
         {/* Windows-style Native Window Controls (Locked) */}
         <div className="flex items-center gap-3">
           <span className="text-cyan-400 font-semibold text-[10px] hidden sm:inline shrink-0">
-            SESSION: {session?.sessionId || 'TRN-ACTIVE-01'}
+            SESSION: {session?.sessionId || localStorage.getItem('spb_session_id') || 'INITIALIZING'}
           </span>
           <span className="text-slate-600 hidden sm:inline">|</span>
           <span className="text-slate-300 text-[10px] font-semibold uppercase truncate max-w-[140px]" title={user?.name || 'ALEX JOHNSON'}>
@@ -652,7 +652,7 @@ export const TestEnvironmentPage: React.FC = () => {
         <div className="flex items-center gap-4">
           <span className="flex items-center gap-1">
             <Terminal className="w-3 h-3 text-[#5B4BFF]" />
-            SESSION: #TRINETRA-{String(timeRemainingSeconds).padStart(4, '0')}
+            SESSION: #{session?.sessionId ? (session.sessionId.length > 20 ? session.sessionId.substring(0, 18) + '...' : session.sessionId) : (localStorage.getItem('spb_session_id') || 'ACTIVE')}
           </span>
           <span className="hidden sm:inline">DISPLAYS: 1 PRIMARY (MULTIPLE BLOCKED)</span>
           <span className="hidden md:inline">DEVTOOLS: DISABLED</span>

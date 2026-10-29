@@ -4,12 +4,13 @@
   "description": "Smart Proctoring Browser - Secure AI Proctoring Electron Shell",
   "main": "dist-electron/main.js",
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently -k -n \"backend,frontend\" -c \"cyan,magenta\" \"node server/index.js\" \"vite\"",
     "build": "tsc && vite build",
     "build:electron": "tsc -p tsconfig.electron.json",
     "electron:dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && npm run build:electron && electron .\"",
     "electron:build": "npm run build && npm run build:electron && electron-builder --win",
-    "package:exe": "npm run build && npm run build:electron && electron-builder --win nsis portable"
+    "package:exe": "npm run build && npm run build:electron && electron-builder --win nsis portable",
+    "server": "node server/index.js"
   },
   "build": {
     "appId": "com.trinetra.proctor",
@@ -38,7 +39,9 @@
   },
   "dependencies": {
     "clsx": "^2.1.1",
+    "cors": "^2.8.6",
     "dexie": "^4.0.11",
+    "express": "^5.3.0",
     "firebase": "^13.1.0",
     "framer-motion": "^14.7.1",
     "lucide-react": "^1.16.0",
@@ -46,6 +49,7 @@
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.29.0",
     "recharts": "^3.10.1",
+    "socket.io": "^4.8.4",
     "tailwind-merge": "^3.0.2",
     "zustand": "^5.0.3"
   },

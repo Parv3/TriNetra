@@ -1,8 +1,10 @@
 @echo off
-title TriNetra Smart Proctoring Browser - Dev Server
+title Dhristi Smart Proctoring Stack (Backend + Frontend)
 echo ========================================================
-echo        TRINETRA SMART PROCTORING BROWSER
+echo        DHRISTI SMART PROCTORING BROWSER & SERVER
 echo ========================================================
-echo Starting Vite Dev Server on http://localhost:5173 ...
+echo Starting Dhristi Backend (http://localhost:3001) ...
+echo Starting Frontend Client  (http://localhost:5173) ...
+echo ========================================================
 npm run dev
 pause
